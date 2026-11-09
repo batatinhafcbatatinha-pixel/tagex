@@ -6,8 +6,6 @@ Point Tagex at any number of locations (local folders, drives or SMB network sha
 It indexes every file into one flat library, and from then on you find things by
 combining tags, file types and search — never by remembering which folder something is in.
 
-Successor of [gerenciador](https://github.com/lucashartmann/gerenciador), rewritten in Rust.
-
 ## Features
 
 - **Tags instead of folders** — click tags to combine them (AND), Alt+click to exclude,
