@@ -22,6 +22,8 @@ Successor of [gerenciador](https://github.com/lucashartmann/gerenciador), rewrit
   cached on disk so network folders load instantly the second time.
 - **Tags survive moves and renames** — when a tagged file disappears and an identical file
   (same name, size and date) shows up elsewhere, the tags follow it.
+- **English and Portuguese** — follows the Windows display language (Portuguese if Windows
+  is in Portuguese, English otherwise); change it any time in the ⚙ settings menu.
 - Grid and list views, sorting, multi-select (Ctrl/Shift), rename, move to Recycle Bin,
   show in Explorer, copy path.
 
@@ -72,4 +74,5 @@ through "Move to Recycle Bin".
 | `src/scanner.rs` | Parallel indexer |
 | `src/thumbs.rs` | Shell thumbnails/icons + disk cache |
 | `src/smb.rs` | SMB connect and share listing (WNet / NetApi) |
+| `src/i18n.rs` | English/Portuguese strings and language detection |
 | `src/model.rs`, `src/theme.rs` | Data types, look and feel |

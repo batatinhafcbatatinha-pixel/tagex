@@ -17,6 +17,7 @@ use crate::model::{
 use crate::scanner::{self, Job, ScanMsg};
 use crate::theme::{self, ACCENT, BORDER, CARD, CARD_HOVER, DANGER, TEXT, TEXT_DIM};
 use crate::thumbs::{self, Lookup, Thumbs};
+use crate::i18n::{self, LangChoice, tr, trf};
 use crate::{db, smb};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,10 +37,10 @@ enum Sort {
 impl Sort {
     fn label(self) -> &'static str {
         match self {
-            Sort::Name => "Name",
-            Sort::Modified => "Modified",
-            Sort::Size => "Size",
-            Sort::Type => "Type",
+            Sort::Name => tr("Name", "Nome"),
+            Sort::Modified => tr("Modified", "Modificado"),
+            Sort::Size => tr("Size", "Tamanho"),
+            Sort::Type => tr("Type", "Tipo"),
         }
     }
     fn key(self) -> &'static str {
@@ -163,6 +164,7 @@ pub struct App {
     focus_search: bool,
     /// Clipboard text goes through egui's context, which `run` doesn't have.
     pending_copy: Option<String>,
+    lang_choice: LangChoice,
 }
 
 impl App {
@@ -189,6 +191,8 @@ impl App {
         let thumb_px = get("thumb_px").and_then(|s| s.parse().ok()).unwrap_or(150.0f32).clamp(80.0, 320.0);
         let sort = Sort::from_key(&get("sort").unwrap_or_default());
         let sort_desc = get("sort_desc").as_deref() == Some("1");
+        let lang_choice = LangChoice::from_key(&get("language").unwrap_or_default());
+        i18n::set(lang_choice.resolve());
 
         let mut app = Self {
             conn,
@@ -230,6 +234,7 @@ impl App {
             toast: None,
             focus_search: false,
             pending_copy: None,
+            lang_choice,
         };
 
         // First load is synchronous so the window opens with content already there.
@@ -440,7 +445,7 @@ impl App {
 
     fn tag_files(&mut self, tag: i64, ids: &[i64], add: bool) {
         if let Err(e) = db::tag_files(&mut self.conn, tag, ids, add) {
-            self.toast(format!("Could not save tags: {e}"));
+            self.toast(trf(format!("Could not save tags: {e}"), format!("Não foi possível salvar as tags: {e}")));
             return;
         }
         for id in ids {
@@ -472,7 +477,7 @@ impl App {
                 Some(id)
             }
             Err(e) => {
-                self.toast(format!("Could not create tag: {e}"));
+                self.toast(trf(format!("Could not create tag: {e}"), format!("Não foi possível criar a tag: {e}")));
                 None
             }
         }
@@ -489,9 +494,9 @@ impl App {
                     self.sources.push(Source { id, path: path.clone() });
                 }
                 self.queue_scan(id, path);
-                self.toast("Indexing location…");
+                self.toast(tr("Indexing location…", "Indexando local…"));
             }
-            Err(e) => self.toast(format!("Could not add location: {e}")),
+            Err(e) => self.toast(trf(format!("Could not add location: {e}"), format!("Não foi possível adicionar o local: {e}"))),
         }
     }
 
@@ -535,7 +540,7 @@ impl App {
                 Action::Open(id) => {
                     if let Some(f) = self.file(id) {
                         if let Err(e) = open::that_detached(&f.path) {
-                            self.toast(format!("Could not open: {e}"));
+                            self.toast(trf(format!("Could not open: {e}"), format!("Não foi possível abrir: {e}")));
                         }
                     }
                 }
@@ -555,7 +560,7 @@ impl App {
                         .join("\r\n");
                     // Copied through the window's clipboard on the next frame.
                     self.pending_copy = Some(text);
-                    self.toast(format!("Copied {} path(s)", ids.len()));
+                    self.toast(trf(format!("Copied {} path(s)", ids.len()), format!("{} caminho(s) copiado(s)", ids.len())));
                 }
                 Action::Rename(id) => {
                     if let Some(f) = self.file(id) {
@@ -702,7 +707,7 @@ impl App {
             if p.is_dir() {
                 self.add_folder_source(p.to_string_lossy().into_owned());
             } else {
-                self.toast("Drop folders here to add them as locations");
+                self.toast(tr("Drop folders here to add them as locations", "Solte pastas aqui para adicioná-las como locais"));
             }
         }
     }
@@ -767,7 +772,7 @@ impl App {
 
             let search = ui.add(
                 TextEdit::singleline(&mut self.query)
-                    .hint_text("Search files…   #tag to match tag names")
+                    .hint_text(tr("Search files…   #tag to match tag names", "Buscar arquivos…   #tag para buscar por tag"))
                     .desired_width((ui.available_width() - 330.0).clamp(160.0, 520.0))
                     .margin(vec2(10.0, 6.0)),
             );
@@ -778,15 +783,16 @@ impl App {
             if search.changed() {
                 self.dirty = true;
             }
-            if !self.query.is_empty() && ui.small_button("✕").on_hover_text("Clear search").clicked() {
+            if !self.query.is_empty() && ui.small_button("✕").on_hover_text(tr("Clear search", "Limpar busca")).clicked() {
                 self.query.clear();
                 self.dirty = true;
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let mut changed = false;
-                let grid = ui.selectable_label(self.view == View::Grid, "⊞").on_hover_text("Grid");
-                let list = ui.selectable_label(self.view == View::List, "☰").on_hover_text("List");
+                ui.menu_button("⚙", |ui| self.settings_menu(ui)).response.on_hover_text(tr("Settings", "Configurações"));
+                let grid = ui.selectable_label(self.view == View::Grid, "⊞").on_hover_text(tr("Grid", "Grade"));
+                let list = ui.selectable_label(self.view == View::List, "☰").on_hover_text(tr("List", "Lista"));
                 if grid.clicked() {
                     self.view = View::Grid;
                     changed = true;
@@ -800,7 +806,7 @@ impl App {
                     changed |= r.drag_stopped() || r.changed() && !r.dragged();
                 }
                 let arrow = if self.sort_desc { "↓" } else { "↑" };
-                if ui.button(arrow).on_hover_text("Reverse order").clicked() {
+                if ui.button(arrow).on_hover_text(tr("Reverse order", "Inverter ordem")).clicked() {
                     self.sort_desc = !self.sort_desc;
                     self.dirty = true;
                     changed = true;
@@ -823,20 +829,43 @@ impl App {
         });
     }
 
+    fn settings_menu(&mut self, ui: &mut Ui) {
+        ui.set_min_width(220.0);
+        ui.label(RichText::new(tr("LANGUAGE", "IDIOMA")).small().strong().color(TEXT_DIM));
+        let system = match i18n::system_lang() {
+            i18n::Lang::Pt => "Português",
+            i18n::Lang::En => "English",
+        };
+        let auto_label = trf(format!("Automatic (Windows: {system})"), format!("Automático (Windows: {system})"));
+        let options = [
+            (LangChoice::Auto, auto_label),
+            (LangChoice::Fixed(i18n::Lang::En), "English".to_string()),
+            (LangChoice::Fixed(i18n::Lang::Pt), "Português".to_string()),
+        ];
+        for (choice, label) in options {
+            if ui.radio(self.lang_choice == choice, label).clicked() {
+                self.lang_choice = choice;
+                i18n::set(choice.resolve());
+                db::set_setting(&self.conn, "language", choice.key());
+                ui.close();
+            }
+        }
+    }
+
     fn status_bar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let total = self.files.len();
             let shown = self.visible.len();
             let txt = if shown == total {
-                format!("{total} files")
+                trf(format!("{total} files"), format!("{total} arquivos"))
             } else {
-                format!("{shown} of {total} files")
+                trf(format!("{shown} of {total} files"), format!("{shown} de {total} arquivos"))
             };
             ui.label(RichText::new(txt).color(TEXT_DIM).small());
             if !self.selection.is_empty() {
                 let bytes: u64 = self.selection.iter().filter_map(|id| self.file(*id)).map(|f| f.size).sum();
                 ui.label(
-                    RichText::new(format!("·  {} selected  ·  {}", self.selection.len(), human_size(bytes)))
+                    RichText::new(trf(format!("·  {} selected  ·  {}", self.selection.len(), human_size(bytes)), format!("·  {} selecionado(s)  ·  {}", self.selection.len(), human_size(bytes))))
                         .color(TEXT_DIM)
                         .small(),
                 );
@@ -848,10 +877,10 @@ impl App {
                     .filter_map(|s| if let SourceStatus::Scanning(n) = s { Some(*n) } else { None })
                     .sum();
                 if self.source_status.values().any(|s| matches!(s, SourceStatus::Scanning(_))) {
-                    ui.label(RichText::new(format!("Indexing… {scanning} files")).color(ACCENT).small());
+                    ui.label(RichText::new(trf(format!("Indexing… {scanning} files"), format!("Indexando… {scanning} arquivos"))).color(ACCENT).small());
                     ui.add(egui::Spinner::new().size(12.0));
                 } else {
-                    ui.label(RichText::new("1–9 toggles tags on the selection").color(TEXT_DIM).small());
+                    ui.label(RichText::new(tr("1–9 toggles tags on the selection", "1–9 aplica/remove tags na seleção")).color(TEXT_DIM).small());
                 }
             });
         });
@@ -860,15 +889,15 @@ impl App {
     fn sidebar(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
         let dragging = egui::DragAndDrop::has_payload_of_type::<DragFiles>(ui.ctx());
 
-        section_title(ui, "LIBRARY");
+        section_title(ui, tr("LIBRARY", "BIBLIOTECA"));
         let all_active = self.include.is_empty() && self.exclude.is_empty() && !self.untagged_only;
-        if nav_row(ui, "▤", "All files", self.files.len(), all_active, ACCENT).clicked() {
+        if nav_row(ui, "▤", tr("All files", "Todos os arquivos"), self.files.len(), all_active, ACCENT).clicked() {
             self.include.clear();
             self.exclude.clear();
             self.untagged_only = false;
             self.dirty = true;
         }
-        if nav_row(ui, "◌", "Untagged", self.untagged_count, self.untagged_only, TEXT_DIM).clicked() {
+        if nav_row(ui, "◌", tr("Untagged", "Sem tag"), self.untagged_count, self.untagged_only, TEXT_DIM).clicked() {
             self.untagged_only = !self.untagged_only;
             if self.untagged_only {
                 self.include.clear();
@@ -877,7 +906,7 @@ impl App {
         }
 
         ui.add_space(14.0);
-        section_title(ui, "TYPES");
+        section_title(ui, tr("TYPES", "TIPOS"));
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
             for k in Kind::ALL {
@@ -896,16 +925,16 @@ impl App {
         ui.horizontal(|ui| {
             section_title(ui, "TAGS");
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.small_button("+").on_hover_text("New tag").clicked() {
+                if ui.small_button("+").on_hover_text(tr("New tag", "Nova tag")).clicked() {
                     self.dialog = Some(Dialog::NewTag { name: String::new(), color: self.next_color() });
                 }
             });
         });
         if self.tags.len() > 8 {
-            ui.add(TextEdit::singleline(&mut self.tag_filter).hint_text("Filter tags…").desired_width(f32::INFINITY));
+            ui.add(TextEdit::singleline(&mut self.tag_filter).hint_text(tr("Filter tags…", "Filtrar tags…")).desired_width(f32::INFINITY));
         }
         if dragging {
-            ui.label(RichText::new("Drop on a tag to apply it").color(ACCENT).small());
+            ui.label(RichText::new(tr("Drop on a tag to apply it", "Solte numa tag para aplicá-la")).color(ACCENT).small());
         }
 
         egui::ScrollArea::vertical().id_salt("tags").auto_shrink([false, true]).show(ui, |ui| {
@@ -929,28 +958,28 @@ impl App {
                     }
                 }
                 resp.context_menu(|ui| {
-                    if ui.button(if included { "Stop filtering" } else { "Show files with this tag" }).clicked() {
+                    if ui.button(if included { tr("Stop filtering", "Parar de filtrar") } else { tr("Show files with this tag", "Mostrar arquivos com esta tag") }).clicked() {
                         actions.push(Action::ToggleInclude(tag.id));
                         ui.close();
                     }
-                    if ui.button(if excluded { "Stop hiding" } else { "Hide files with this tag  (Alt+click)" }).clicked() {
+                    if ui.button(if excluded { tr("Stop hiding", "Parar de esconder") } else { tr("Hide files with this tag  (Alt+click)", "Esconder arquivos com esta tag  (Alt+clique)") }).clicked() {
                         actions.push(Action::ToggleExclude(tag.id));
                         ui.close();
                     }
                     if !self.selection.is_empty() {
                         ui.separator();
-                        if ui.button(format!("Add to {} selected", self.selection.len())).clicked() {
+                        if ui.button(trf(format!("Add to {} selected", self.selection.len()), format!("Adicionar aos {} selecionados", self.selection.len()))).clicked() {
                             actions.push(Action::TagFiles { tag: tag.id, files: self.selected_ids(), add: true });
                             ui.close();
                         }
-                        if ui.button(format!("Remove from {} selected", self.selection.len())).clicked() {
+                        if ui.button(trf(format!("Remove from {} selected", self.selection.len()), format!("Remover dos {} selecionados", self.selection.len()))).clicked() {
                             actions.push(Action::TagFiles { tag: tag.id, files: self.selected_ids(), add: false });
                             ui.close();
                         }
                     }
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.label("Color");
+                        ui.label(tr("Color", "Cor"));
                         let mut c = tag.color;
                         if ui.color_edit_button_srgba(&mut c).changed() {
                             actions.push(Action::SetTagColor(tag.id, c));
@@ -967,11 +996,11 @@ impl App {
                         }
                     });
                     ui.separator();
-                    if ui.button("Rename…").clicked() {
+                    if ui.button(tr("Rename…", "Renomear…")).clicked() {
                         actions.push(Action::RenameTag(tag.id));
                         ui.close();
                     }
-                    if ui.button(RichText::new("Delete tag").color(DANGER)).clicked() {
+                    if ui.button(RichText::new(tr("Delete tag", "Excluir tag")).color(DANGER)).clicked() {
                         actions.push(Action::DeleteTag(tag.id));
                         ui.close();
                     }
@@ -979,7 +1008,7 @@ impl App {
             }
             if self.tags.is_empty() {
                 ui.label(
-                    RichText::new("No tags yet. Select files and type a tag name on the right.")
+                    RichText::new(tr("No tags yet. Select files and type a tag name on the right.", "Nenhuma tag ainda. Selecione arquivos e digite o nome de uma tag à direita."))
                         .color(TEXT_DIM)
                         .small(),
                 );
@@ -989,24 +1018,24 @@ impl App {
     }
 
     fn locations(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
-        section_title(ui, "LOCATIONS");
+        section_title(ui, tr("LOCATIONS", "LOCAIS"));
         egui::ScrollArea::vertical().id_salt("sources").max_height(28.0 * 5.0).show(ui, |ui| {
             for s in &self.sources {
                 let status = self.source_status.get(&s.id);
                 source_row(ui, s, status, actions);
             }
             if self.sources.is_empty() {
-                ui.label(RichText::new("Add a folder or a network share to start.").color(TEXT_DIM).small());
+                ui.label(RichText::new(tr("Add a folder or a network share to start.", "Adicione uma pasta ou compartilhamento de rede para começar.")).color(TEXT_DIM).small());
             }
         });
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            if ui.button("+ Folder").clicked() {
+            if ui.button(tr("+ Folder", "+ Pasta")).clicked() {
                 if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                     self.add_folder_source(dir.to_string_lossy().into_owned());
                 }
             }
-            if ui.button("+ Network").on_hover_text("Add an SMB share").clicked() {
+            if ui.button(tr("+ Network", "+ Rede")).on_hover_text(tr("Add an SMB share", "Adicionar compartilhamento SMB")).clicked() {
                 self.dialog = Some(Dialog::Smb(SmbDialog::default()));
             }
         });
@@ -1015,11 +1044,11 @@ impl App {
     fn empty_state(&mut self, ui: &mut Ui) {
         ui.centered_and_justified(|ui| {
             let msg = if self.sources.is_empty() {
-                "Add a folder or network share on the left — or drop a folder here."
+                tr("Add a folder or network share on the left — or drop a folder here.", "Adicione uma pasta ou compartilhamento de rede à esquerda — ou solte uma pasta aqui.")
             } else if self.files.is_empty() {
-                "Indexing…"
+                tr("Indexing…", "Indexando…")
             } else {
-                "Nothing matches these filters."
+                tr("Nothing matches these filters.", "Nada corresponde a esses filtros.")
             };
             ui.label(RichText::new(msg).color(TEXT_DIM).size(16.0));
         });
@@ -1122,11 +1151,11 @@ impl App {
             ui.add_space(36.0);
             let name_w = width - col_size - col_date - col_tags - col_folder - 60.0;
             for (label, w, sort) in [
-                ("Name", name_w, Some(Sort::Name)),
+                (tr("Name", "Nome"), name_w, Some(Sort::Name)),
                 ("Tags", col_tags, None),
-                ("Location", col_folder, None),
-                ("Size", col_size, Some(Sort::Size)),
-                ("Modified", col_date, Some(Sort::Modified)),
+                (tr("Location", "Local"), col_folder, None),
+                (tr("Size", "Tamanho"), col_size, Some(Sort::Size)),
+                (tr("Modified", "Modificado"), col_date, Some(Sort::Modified)),
             ] {
                 let active = sort == Some(self.sort);
                 let txt = if active {
@@ -1239,18 +1268,18 @@ impl App {
                 });
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("Open").clicked() {
+                    if ui.button(tr("Open", "Abrir")).clicked() {
                         actions.push(Action::Open(f.id));
                     }
-                    if ui.button("Show in Explorer").clicked() {
+                    if ui.button(tr("Show in Explorer", "Mostrar no Explorer")).clicked() {
                         actions.push(Action::Reveal(f.id));
                     }
-                    if ui.button("Rename").clicked() {
+                    if ui.button(tr("Rename", "Renomear")).clicked() {
                         actions.push(Action::Rename(f.id));
                     }
                 });
             } else {
-                ui.label(RichText::new(format!("{} files selected", sel.len())).strong().size(15.0).color(TEXT));
+                ui.label(RichText::new(trf(format!("{} files selected", sel.len()), format!("{} arquivos selecionados", sel.len()))).strong().size(15.0).color(TEXT));
                 let bytes: u64 = sel.iter().filter_map(|id| self.file(*id)).map(|f| f.size).sum();
                 ui.label(RichText::new(human_size(bytes)).small().color(TEXT_DIM));
             }
@@ -1274,20 +1303,20 @@ impl App {
                     if r.clicked() {
                         actions.push(Action::TagFiles { tag: tag.id, files: sel.clone(), add: false });
                     }
-                    let r = r.on_hover_text(if partial { "Click to remove · right-click to apply to all" } else { "Click to remove" });
+                    let r = r.on_hover_text(if partial { tr("Click to remove · right-click to apply to all", "Clique para remover · botão direito para aplicar a todos") } else { tr("Click to remove", "Clique para remover") });
                     if partial && r.secondary_clicked() {
                         actions.push(Action::TagFiles { tag: tag.id, files: sel.clone(), add: true });
                     }
                 }
                 if present.is_empty() {
-                    ui.label(RichText::new("No tags").small().color(TEXT_DIM));
+                    ui.label(RichText::new(tr("No tags", "Sem tags")).small().color(TEXT_DIM));
                 }
             });
 
             ui.add_space(10.0);
             let input = ui.add(
                 TextEdit::singleline(&mut self.tag_input)
-                    .hint_text("Add a tag and press Enter…")
+                    .hint_text(tr("Add a tag and press Enter…", "Digite uma tag e aperte Enter…"))
                     .desired_width(f32::INFINITY)
                     .margin(vec2(8.0, 6.0)),
             );
@@ -1318,7 +1347,7 @@ impl App {
                     }
                 }
                 if !q.is_empty() && !self.tags.iter().any(|t| t.name.to_lowercase() == q) {
-                    if ui.small_button(format!("＋ Create “{}”", self.tag_input.trim())).clicked() {
+                    if ui.small_button(trf(format!("+ Create “{}”", self.tag_input.trim()), format!("+ Criar “{}”", self.tag_input.trim()))).clicked() {
                         actions.push(Action::NewTagFor { name: self.tag_input.trim().to_string(), files: sel.clone() });
                         self.tag_input.clear();
                     }
@@ -1327,10 +1356,10 @@ impl App {
 
             ui.add_space(18.0);
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Copy path").clicked() {
+                if ui.button(tr("Copy path", "Copiar caminho")).clicked() {
                     actions.push(Action::CopyPaths(sel.clone()));
                 }
-                if ui.button(RichText::new("Move to Recycle Bin").color(DANGER)).clicked() {
+                if ui.button(RichText::new(tr("Move to Recycle Bin", "Mover para a Lixeira")).color(DANGER)).clicked() {
                     actions.push(Action::Delete(sel.clone()));
                 }
             });
@@ -1341,7 +1370,7 @@ impl App {
         if let Some(p) = egui::DragAndDrop::payload::<DragFiles>(ctx) {
             if let Some(pos) = ctx.pointer_latest_pos() {
                 let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("drag")));
-                let text = if p.0.len() == 1 { "1 file".to_string() } else { format!("{} files", p.0.len()) };
+                let text = if p.0.len() == 1 { tr("1 file", "1 arquivo").to_string() } else { trf(format!("{} files", p.0.len()), format!("{} arquivos", p.0.len())) };
                 let galley = painter.layout_no_wrap(text, FontId::proportional(13.0), Color32::WHITE);
                 let rect = Rect::from_min_size(pos + vec2(14.0, 10.0), galley.size() + vec2(20.0, 10.0));
                 painter.rect_filled(rect, CornerRadius::same(8), ACCENT);
@@ -1379,7 +1408,7 @@ impl App {
             match &mut dialog {
                 Dialog::Smb(d) => keep = self.smb_dialog(ui, d),
                 Dialog::RenameFile { id, name, error } => {
-                    ui.heading("Rename file");
+                    ui.heading(tr("Rename file", "Renomear arquivo"));
                     ui.add_space(6.0);
                     let r = ui.add(TextEdit::singleline(name).desired_width(f32::INFINITY));
                     r.request_focus();
@@ -1387,7 +1416,7 @@ impl App {
                         ui.label(RichText::new(e.as_str()).color(DANGER).small());
                     }
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(K::Enter));
-                    let (ok, cancel) = buttons(ui, "Rename");
+                    let (ok, cancel) = buttons(ui, tr("Rename", "Renomear"));
                     if ok || enter {
                         match self.rename_file(*id, name.trim()) {
                             Ok(()) => keep = false,
@@ -1399,12 +1428,12 @@ impl App {
                     }
                 }
                 Dialog::RenameTag { id, name } => {
-                    ui.heading("Rename tag");
+                    ui.heading(tr("Rename tag", "Renomear tag"));
                     ui.add_space(6.0);
                     let r = ui.add(TextEdit::singleline(name).desired_width(f32::INFINITY));
                     r.request_focus();
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(K::Enter));
-                    let (ok, cancel) = buttons(ui, "Rename");
+                    let (ok, cancel) = buttons(ui, tr("Rename", "Renomear"));
                     if (ok || enter) && !name.trim().is_empty() {
                         match db::rename_tag(&self.conn, *id, name.trim()) {
                             Ok(()) => {
@@ -1415,7 +1444,7 @@ impl App {
                                 self.mutated();
                                 keep = false;
                             }
-                            Err(_) => self.toast("A tag with that name already exists"),
+                            Err(_) => self.toast(tr("A tag with that name already exists", "Já existe uma tag com esse nome")),
                         }
                     }
                     if cancel {
@@ -1423,11 +1452,11 @@ impl App {
                     }
                 }
                 Dialog::NewTag { name, color } => {
-                    ui.heading("New tag");
+                    ui.heading(tr("New tag", "Nova tag"));
                     ui.add_space(6.0);
                     let r = ui.horizontal(|ui| {
                         ui.color_edit_button_srgba(color);
-                        ui.add(TextEdit::singleline(name).hint_text("Tag name").desired_width(f32::INFINITY))
+                        ui.add(TextEdit::singleline(name).hint_text(tr("Tag name", "Nome da tag")).desired_width(f32::INFINITY))
                     });
                     r.inner.request_focus();
                     let enter = r.inner.lost_focus() && ui.input(|i| i.key_pressed(K::Enter));
@@ -1443,7 +1472,7 @@ impl App {
                             }
                         }
                     });
-                    let (ok, cancel) = buttons(ui, "Create");
+                    let (ok, cancel) = buttons(ui, tr("Create", "Criar"));
                     if (ok || enter) && !name.trim().is_empty() {
                         let sel = self.selected_ids();
                         if let Some(tag) = self.create_tag(name, *color) {
@@ -1458,15 +1487,15 @@ impl App {
                     }
                 }
                 Dialog::ConfirmDelete { ids } => {
-                    ui.heading("Move to Recycle Bin?");
+                    ui.heading(tr("Move to Recycle Bin?", "Mover para a Lixeira?"));
                     ui.add_space(6.0);
                     let label = if ids.len() == 1 {
                         self.file(ids[0]).map(|f| f.name.clone()).unwrap_or_default()
                     } else {
-                        format!("{} files", ids.len())
+                        trf(format!("{} files", ids.len()), format!("{} arquivos", ids.len()))
                     };
                     ui.label(label);
-                    let (ok, cancel) = buttons(ui, "Delete");
+                    let (ok, cancel) = buttons(ui, tr("Delete", "Excluir"));
                     if ok {
                         let ids = ids.clone();
                         self.delete_files(&ids);
@@ -1478,10 +1507,10 @@ impl App {
                 }
                 Dialog::ConfirmDeleteTag { id } => {
                     let name = self.tags.iter().find(|t| t.id == *id).map(|t| t.name.clone()).unwrap_or_default();
-                    ui.heading("Delete tag?");
+                    ui.heading(tr("Delete tag?", "Excluir tag?"));
                     ui.add_space(6.0);
-                    ui.label(format!("“{name}” will be removed from all files. The files stay where they are."));
-                    let (ok, cancel) = buttons(ui, "Delete tag");
+                    ui.label(trf(format!("“{name}” will be removed from all files. The files stay where they are."), format!("“{name}” será removida de todos os arquivos. Os arquivos continuam onde estão.")));
+                    let (ok, cancel) = buttons(ui, tr("Delete tag", "Excluir tag"));
                     if ok {
                         let _ = db::delete_tag(&self.conn, *id);
                         let id = *id;
@@ -1526,7 +1555,7 @@ impl App {
                         d.shares = list;
                         d.error = None;
                     }
-                    SmbResult::Shares(Err(e)) => d.error = Some(format!("Could not list shares: {e}")),
+                    SmbResult::Shares(Err(e)) => d.error = Some(trf(format!("Could not list shares: {e}"), format!("Não foi possível listar os compartilhamentos: {e}"))),
                     SmbResult::Connected(Ok(unc)) => {
                         match d.reconnect {
                             Some(id) => actions_rescan(self, id),
@@ -1539,14 +1568,14 @@ impl App {
             }
         }
 
-        ui.heading(if d.reconnect.is_some() { "Connect to share" } else { "Add network share" });
-        ui.label(RichText::new("SMB / Windows file sharing (NAS, other PCs, Samba).").small().color(TEXT_DIM));
+        ui.heading(if d.reconnect.is_some() { tr("Connect to share", "Conectar ao compartilhamento") } else { tr("Add network share", "Adicionar compartilhamento de rede") });
+        ui.label(RichText::new(tr("SMB / Windows file sharing (NAS, other PCs, Samba).", "SMB / compartilhamento do Windows (NAS, outros PCs, Samba).")).small().color(TEXT_DIM));
         ui.add_space(8.0);
         egui::Grid::new("smb").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
-            ui.label("Server");
+            ui.label(tr("Server", "Servidor"));
             ui.horizontal(|ui| {
-                ui.add(TextEdit::singleline(&mut d.server).hint_text("nas  or  192.168.0.10").desired_width(200.0));
-                if ui.add_enabled(!d.busy && !d.server.trim().is_empty(), egui::Button::new("List shares")).clicked() {
+                ui.add(TextEdit::singleline(&mut d.server).hint_text(tr("nas  or  192.168.0.10", "nas  ou  192.168.0.10")).desired_width(200.0));
+                if ui.add_enabled(!d.busy && !d.server.trim().is_empty(), egui::Button::new(tr("List shares", "Listar compartilhamentos"))).clicked() {
                     let server = smb::normalize_unc(&d.server);
                     let (user, pass) = (d.user.clone(), d.password.clone());
                     let (tx, rx) = unbounded();
@@ -1564,10 +1593,10 @@ impl App {
                 }
             });
             ui.end_row();
-            ui.label("Share");
+            ui.label(tr("Share", "Compartilhamento"));
             ui.horizontal(|ui| {
                 if d.shares.is_empty() {
-                    ui.add(TextEdit::singleline(&mut d.share).hint_text("folder name").desired_width(200.0));
+                    ui.add(TextEdit::singleline(&mut d.share).hint_text(tr("folder name", "nome da pasta")).desired_width(200.0));
                 } else {
                     egui::ComboBox::from_id_salt("shares").selected_text(d.share.clone()).width(200.0).show_ui(ui, |ui| {
                         for s in &d.shares {
@@ -1577,15 +1606,15 @@ impl App {
                 }
             });
             ui.end_row();
-            ui.label("User");
-            ui.add(TextEdit::singleline(&mut d.user).hint_text("optional").desired_width(200.0));
+            ui.label(tr("User", "Usuário"));
+            ui.add(TextEdit::singleline(&mut d.user).hint_text(tr("optional", "opcional")).desired_width(200.0));
             ui.end_row();
-            ui.label("Password");
-            ui.add(TextEdit::singleline(&mut d.password).password(true).hint_text("optional").desired_width(200.0));
+            ui.label(tr("Password", "Senha"));
+            ui.add(TextEdit::singleline(&mut d.password).password(true).hint_text(tr("optional", "opcional")).desired_width(200.0));
             ui.end_row();
         });
         ui.label(
-            RichText::new("Leave user/password empty to use your Windows login or saved credentials.")
+            RichText::new(tr("Leave user/password empty to use your Windows login or saved credentials.", "Deixe usuário/senha vazios para usar seu login do Windows ou credenciais salvas."))
                 .small()
                 .color(TEXT_DIM),
         );
@@ -1596,7 +1625,7 @@ impl App {
         if d.busy {
             ui.add(egui::Spinner::new());
         }
-        let (ok, cancel) = buttons(ui, "Connect");
+        let (ok, cancel) = buttons(ui, tr("Connect", "Conectar"));
         if ok && !d.busy && !d.server.trim().is_empty() && !d.share.trim().is_empty() {
             let unc = format!("{}\\{}", smb::normalize_unc(&d.server), d.share.trim().trim_matches('\\'));
             let (user, pass) = (d.user.clone(), d.password.clone());
@@ -1607,7 +1636,7 @@ impl App {
             let ctx = ui.ctx().clone();
             std::thread::spawn(move || {
                 let res = smb::connect(&unc, &user, &pass).and_then(|_| {
-                    std::fs::read_dir(&unc).map(|_| unc.clone()).map_err(|e| format!("Connected, but cannot read the share: {e}"))
+                    std::fs::read_dir(&unc).map(|_| unc.clone()).map_err(|e| trf(format!("Connected, but cannot read the share: {e}"), format!("Conectado, mas não foi possível ler o compartilhamento: {e}")))
                 });
                 let _ = tx.send(SmbResult::Connected(res));
                 ctx.request_repaint();
@@ -1618,9 +1647,9 @@ impl App {
 
     fn rename_file(&mut self, id: i64, new_name: &str) -> Result<(), String> {
         if new_name.is_empty() || new_name.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|']) {
-            return Err("Invalid file name".into());
+            return Err(tr("Invalid file name", "Nome de arquivo inválido").into());
         }
-        let Some(&i) = self.index_of.get(&id) else { return Err("File not found".into()) };
+        let Some(&i) = self.index_of.get(&id) else { return Err(tr("File not found", "Arquivo não encontrado").into()) };
         let old = self.files[i].path.clone();
         let folder = self.files[i].folder().to_string();
         let new_path = format!("{folder}\\{new_name}");
@@ -1667,9 +1696,9 @@ impl App {
             self.dirty = true;
         }
         if failed > 0 {
-            self.toast(format!("{failed} file(s) could not be moved to the Recycle Bin"));
+            self.toast(trf(format!("{failed} file(s) could not be moved to the Recycle Bin"), format!("{failed} arquivo(s) não puderam ir para a Lixeira")));
         } else {
-            self.toast(format!("Moved {} file(s) to the Recycle Bin", done.len()));
+            self.toast(trf(format!("Moved {} file(s) to the Recycle Bin", done.len()), format!("{} arquivo(s) movido(s) para a Lixeira", done.len())));
         }
     }
 }
@@ -1744,7 +1773,7 @@ fn tag_row(ui: &mut Ui, tag: &Tag, count: usize, included: bool, excluded: bool,
     if let (Some(n), true) = (hotkey, resp.hovered()) {
         p.text(pos2(rect.right() - 40.0, rect.center().y), Align2::RIGHT_CENTER, n.to_string(), FontId::monospace(11.0), TEXT_DIM.gamma_multiply(0.7));
     }
-    resp.on_hover_text("Click to filter · Alt+click to hide · drop files to tag")
+    resp.on_hover_text(tr("Click to filter · Alt+click to hide · drop files to tag", "Clique para filtrar · Alt+clique para esconder · solte arquivos para etiquetar"))
 }
 
 fn tag_chip(ui: &mut Ui, label: &str, color: Color32, faded: bool, removable: bool) -> egui::Response {
@@ -1773,8 +1802,8 @@ fn source_row(ui: &mut Ui, s: &Source, status: Option<&SourceStatus>, actions: &
     }
     let icon = if s.is_network() { "🖧" } else { "🖴" };
     let (dot, tip) = match status {
-        Some(SourceStatus::Scanning(n)) => (ACCENT, format!("Indexing… {n} files")),
-        Some(SourceStatus::Ready(n)) => (Color32::from_rgb(0x4c, 0xc9, 0xa4), format!("{n} files")),
+        Some(SourceStatus::Scanning(n)) => (ACCENT, trf(format!("Indexing… {n} files"), format!("Indexando… {n} arquivos"))),
+        Some(SourceStatus::Ready(n)) => (Color32::from_rgb(0x4c, 0xc9, 0xa4), trf(format!("{n} files"), format!("{n} arquivos"))),
         Some(SourceStatus::Error(e)) => (DANGER, format!("Offline: {e}")),
         None => (TEXT_DIM, String::new()),
     };
@@ -1784,20 +1813,20 @@ fn source_row(ui: &mut Ui, s: &Source, status: Option<&SourceStatus>, actions: &
     p.circle_filled(pos2(rect.right() - 10.0, rect.center().y), 3.5, dot);
     let resp = resp.on_hover_text(format!("{}\n{tip}", s.path));
     resp.context_menu(|ui| {
-        if ui.button("Rescan").clicked() {
+        if ui.button(tr("Rescan", "Reindexar")).clicked() {
             actions.push(Action::Rescan(s.id));
             ui.close();
         }
-        if s.is_network() && ui.button("Connect / log in…").clicked() {
+        if s.is_network() && ui.button(tr("Connect / log in…", "Conectar / entrar…")).clicked() {
             actions.push(Action::ConnectSource(s.id));
             ui.close();
         }
-        if ui.button("Open in Explorer").clicked() {
+        if ui.button(tr("Open in Explorer", "Abrir no Explorer")).clicked() {
             let _ = open::that_detached(&s.path);
             ui.close();
         }
         ui.separator();
-        if ui.button(RichText::new("Remove location").color(DANGER)).on_hover_text("Forgets the files and their tags. Nothing is deleted from disk.").clicked() {
+        if ui.button(RichText::new(tr("Remove location", "Remover local")).color(DANGER)).on_hover_text(tr("Forgets the files and their tags. Nothing is deleted from disk.", "Esquece os arquivos e suas tags. Nada é apagado do disco.")).clicked() {
             actions.push(Action::RemoveSource(s.id));
             ui.close();
         }
@@ -1823,7 +1852,7 @@ fn buttons(ui: &mut Ui, ok_label: &str) -> (bool, bool) {
     let mut cancel = false;
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ok = ui.add(egui::Button::new(RichText::new(ok_label).color(Color32::WHITE)).fill(ACCENT)).clicked();
-        cancel = ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(K::Escape));
+        cancel = ui.button(tr("Cancel", "Cancelar")).clicked() || ui.input(|i| i.key_pressed(K::Escape));
     });
     (ok, cancel)
 }
@@ -1875,19 +1904,19 @@ fn file_context_menu(
 ) {
     resp.context_menu(|ui| {
         ui.set_min_width(200.0);
-        if ui.button("Open").clicked() {
+        if ui.button(tr("Open", "Abrir")).clicked() {
             actions.push(Action::Open(f.id));
             ui.close();
         }
-        if ui.button("Show in Explorer").clicked() {
+        if ui.button(tr("Show in Explorer", "Mostrar no Explorer")).clicked() {
             actions.push(Action::Reveal(f.id));
             ui.close();
         }
-        if ui.button("Copy path").clicked() {
+        if ui.button(tr("Copy path", "Copiar caminho")).clicked() {
             actions.push(Action::CopyPaths(sel.to_vec()));
             ui.close();
         }
-        if sel.len() == 1 && ui.button("Rename…").clicked() {
+        if sel.len() == 1 && ui.button(tr("Rename…", "Renomear…")).clicked() {
             actions.push(Action::Rename(f.id));
             ui.close();
         }
@@ -1902,11 +1931,11 @@ fn file_context_menu(
                 }
             }
             if tags.is_empty() {
-                ui.label(RichText::new("No tags yet").color(TEXT_DIM));
+                ui.label(RichText::new(tr("No tags yet", "Nenhuma tag ainda")).color(TEXT_DIM));
             }
         });
         ui.separator();
-        if ui.button(RichText::new("Move to Recycle Bin").color(DANGER)).clicked() {
+        if ui.button(RichText::new(tr("Move to Recycle Bin", "Mover para a Lixeira")).color(DANGER)).clicked() {
             actions.push(Action::Delete(sel.to_vec()));
             ui.close();
         }
@@ -1964,7 +1993,7 @@ fn draw_thumb(ui: &Ui, thumbs: &mut Thumbs, f: &FileEntry, rect: Rect, big: bool
             let r = if big { rect.shrink(rect.width().min(rect.height()) * 0.18) } else { rect };
             p.rect_filled(r, CornerRadius::same(if big { 10 } else { 4 }), c.gamma_multiply(if pending { 0.12 } else { 0.22 }));
             if big {
-                let ext = if f.ext.is_empty() { "file".to_string() } else { f.ext.to_uppercase() };
+                let ext = if f.ext.is_empty() { tr("file", "arquivo").to_string() } else { f.ext.to_uppercase() };
                 p.text(r.center(), Align2::CENTER_CENTER, ext, FontId::proportional(16.0), c);
             }
         }

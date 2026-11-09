@@ -43,13 +43,13 @@ impl Kind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Image => "Images",
-            Kind::Video => "Videos",
-            Kind::Audio => "Audio",
-            Kind::Document => "Documents",
-            Kind::Archive => "Archives",
-            Kind::Code => "Code",
-            Kind::Other => "Other",
+            Kind::Image => crate::i18n::tr("Images", "Imagens"),
+            Kind::Video => crate::i18n::tr("Videos", "Vídeos"),
+            Kind::Audio => crate::i18n::tr("Audio", "Áudio"),
+            Kind::Document => crate::i18n::tr("Documents", "Documentos"),
+            Kind::Archive => crate::i18n::tr("Archives", "Compactados"),
+            Kind::Code => crate::i18n::tr("Code", "Código"),
+            Kind::Other => crate::i18n::tr("Other", "Outros"),
         }
     }
 

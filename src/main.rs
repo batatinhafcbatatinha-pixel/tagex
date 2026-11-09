@@ -2,6 +2,7 @@
 
 mod app;
 mod db;
+mod i18n;
 mod model;
 mod scanner;
 mod smb;
