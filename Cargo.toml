@@ -1,0 +1,18 @@
+[package]
+name = "tagex"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+crossbeam-channel = "0.5.17"
+directories = "6.0.0"
+eframe = "0.37.0"
+egui = "0.37"
+egui_extras = "0.37.0"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
+open = "5.4.5"
+rfd = "0.18.0"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+trash = "5.3.0"
+windows = { version = "0.62.2", features = ["Win32_NetworkManagement_WNet", "Win32_Foundation", "Win32_NetworkManagement_NetManagement", "Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_UI_Shell_Common", "Win32_Security", "Win32_Storage_FileSystem"] }
